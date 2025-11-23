@@ -30,28 +30,28 @@ Esta aplicación requiere una clave de API de OpenAI para funcionar. Agrega tu c
 
 ### 2. Ejecutar la aplicación
 
-Simplemente haz clic en el botón "Run" o ejecuta:
+La aplicación está configurada para ejecutarse automáticamente con el workflow "Start application" que ejecuta `npm run dev`. Esto inicia tanto el servidor Express (backend) como el servidor Vite (frontend) en el puerto 5000.
 
-```bash
-node backend/server.js
-```
-
-La aplicación estará disponible en `http://localhost:3000` o en la URL de Replit.
+La aplicación estará disponible en la URL de Replit una vez que el workflow esté en ejecución.
 
 ## Arquitectura
 
 ### Estructura de archivos
 
 ```
+server/
+  routes.ts                   # Endpoints de la API integrados con Express
+  app.ts                      # Configuración de Express
+  index-dev.ts                # Punto de entrada del servidor
+
 backend/
-  server.js                    # Servidor Express principal
   services/
     realtimeSession.js        # Creación de sesiones Realtime
     grammarOracle.js          # Análisis gramatical con GPT-5-mini
     transcriber.js            # Transcripción de audio con GPT-4o-transcribe
 
 frontend/
-  index.html                  # Página principal
+  index.html                  # Página principal del widget
   ia-voz-core.js             # Lógica principal (WebRTC, Realtime API)
   ia-voz-ui.js               # Capa de UI (manipulación del DOM)
   ia-voz.css                 # Todos los estilos
@@ -100,7 +100,7 @@ Edita `prompts/grammar-oracle-prompt.md` para ajustar cómo se detectan y explic
 
 ### Cambiar la voz o modelo
 
-Los modelos y configuración se pueden ajustar en `backend/server.js` en el endpoint `/config`.
+Los modelos y configuración se pueden ajustar en `server/routes.ts` en el endpoint `/config`.
 
 ### Personalizar el diseño
 
@@ -108,10 +108,14 @@ Todos los estilos visuales están en `frontend/ia-voz.css`. Las variables CSS es
 
 ## Endpoints de la API
 
+Todos los endpoints están implementados en `server/routes.ts`:
+
 - `GET /config` - Devuelve la configuración de la aplicación
-- `POST /session` - Crea una nueva sesión Realtime
-- `POST /correct` - Analiza texto para errores gramaticales
-- `POST /transcribe` - Transcribe audio a texto en español
+- `POST /session` - Crea una nueva sesión Realtime con token efímero
+- `POST /correct` - Analiza texto para errores gramaticales usando GPT-5-mini
+- `POST /transcribe` - Transcribe audio a texto en español usando GPT-4o-transcribe
+- `GET /` - Redirecciona a `/app`
+- `GET /app/*` - Sirve los archivos estáticos del frontend
 
 ## Criterios de aceptación
 
@@ -123,10 +127,41 @@ Al pulsar el botón del micrófono:
 
 ## Tecnologías
 
-- **Backend:** Node.js + Express
+- **Backend:** Node.js + Express + TypeScript
 - **Frontend:** Vanilla JavaScript (sin frameworks)
 - **APIs:** OpenAI Realtime, Audio Transcriptions, Chat Completions
 - **Comunicación:** WebRTC + REST
+- **Build:** Vite para desarrollo
+
+## Diseño Visual
+
+- **Widget:** 380×680px con bordes redondeados
+- **Encabezado:** Navy blue (#182539) con título blanco y indicador de estado
+- **Burbujas de chat:**
+  - Asistente: Mustard yellow (#F1C75B) con texto oscuro
+  - Usuario: Blanco con texto oscuro
+- **Botón de micrófono:** Terracotta (#E25A2C) con ondas animadas
+- **Tarjetas de corrección:** Blanco con borde izquierdo verde (#2BA84A) e iconos SVG
+- **Iconos:** Todos SVG (sin emojis) para consistencia visual
+- **Atributos de prueba:** Todos los elementos interactivos incluyen `data-testid` para testing automatizado
+
+## Estado de Implementación
+
+✅ Backend services completamente implementados
+✅ Integración con server/routes.ts exitosa
+✅ Frontend con separación estricta core/UI
+✅ Diseño visual cumple especificaciones
+✅ SVG icons en lugar de emojis
+✅ data-testid en todos los elementos interactivos
+⚠️ Requiere OPENAI_API_KEY para funcionar
+
+## Próximos Pasos
+
+1. Agregar OPENAI_API_KEY en Secrets
+2. Probar conversación de voz end-to-end
+3. Verificar sistema de correcciones gramaticales
+4. Validar cola de correcciones (no interrumpe)
+5. Testing cross-browser de iconos SVG
 
 ## Licencia
 
