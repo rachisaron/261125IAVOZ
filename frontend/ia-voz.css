@@ -1,0 +1,463 @@
+/**
+ * Profe ELE - IA Voz Styles
+ * All visual design for the voice chat widget
+ */
+
+/* CSS Variables */
+:root {
+  --ia-mic: #E25A2C;
+  --ia-navy: #182539;
+  --ia-mustard: #F1C75B;
+  --ia-green: #3CC47C;
+  --ia-bg-light: #F6F7F9;
+  --ia-border-light: #E0E0E0;
+  --ia-error-red: #C7442E;
+  --ia-fix-green: #1A7C4A;
+  --ia-text-gray: #555;
+  --ia-text-dark: #444;
+}
+
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* Widget Container */
+#ia-voz {
+  width: 380px;
+  height: 680px;
+  background: white;
+  border-radius: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Header */
+.iav-header {
+  height: 56px;
+  background: var(--ia-navy);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.iav-header-title {
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.iav-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.iav-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6b7280;
+  transition: background 0.3s ease;
+}
+
+.iav-status-dot.connected {
+  background: var(--ia-green);
+  box-shadow: 0 0 8px rgba(60, 196, 124, 0.6);
+}
+
+.iav-settings-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.iav-settings-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+/* Chat Area */
+.iav-chat {
+  flex: 1;
+  background: var(--ia-bg-light);
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.iav-chat::-webkit-scrollbar {
+  width: 6px;
+}
+
+.iav-chat::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.iav-chat::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.iav-chat::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Message Bubbles */
+.iav-message {
+  max-width: 75%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  line-height: 1.5;
+  font-size: 14px;
+  word-wrap: break-word;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.iav-message.assistant {
+  align-self: flex-start;
+  background: var(--ia-mustard);
+  color: #2d2d2d;
+  box-shadow: 0 2px 8px rgba(241, 199, 91, 0.3);
+  border-bottom-left-radius: 4px;
+}
+
+.iav-message.user {
+  align-self: flex-end;
+  background: white;
+  color: #2d2d2d;
+  border: 1px solid var(--ia-border-light);
+  border-bottom-right-radius: 4px;
+}
+
+/* Correction Card */
+.iav-correction-card {
+  align-self: center;
+  width: calc(100% - 20px);
+  max-width: 320px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  padding: 12px 16px 12px 24px;
+  margin: 8px 0;
+  position: relative;
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Left stripe */
+.iav-correction-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--ia-mic);
+  border-radius: 12px 0 0 12px;
+}
+
+.iav-correction-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ia-text-dark);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.iav-correction-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.iav-correction-row:last-child {
+  margin-bottom: 0;
+}
+
+.iav-correction-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.iav-correction-icon.error {
+  color: var(--ia-error-red);
+  font-weight: bold;
+}
+
+.iav-correction-icon.fix {
+  color: var(--ia-fix-green);
+  font-weight: bold;
+}
+
+.iav-correction-icon.reason {
+  font-size: 14px;
+}
+
+.iav-correction-label {
+  font-weight: 600;
+  min-width: 70px;
+  color: #333;
+}
+
+.iav-correction-text {
+  flex: 1;
+  color: #2d2d2d;
+}
+
+.iav-correction-text.error {
+  text-decoration: underline;
+  text-decoration-color: var(--ia-error-red);
+  text-decoration-thickness: 2px;
+  color: var(--ia-error-red);
+}
+
+.iav-correction-text.fix {
+  text-decoration: underline;
+  text-decoration-color: var(--ia-fix-green);
+  text-decoration-thickness: 2px;
+  color: var(--ia-fix-green);
+}
+
+.iav-correction-text.reason {
+  font-style: italic;
+  color: var(--ia-text-gray);
+}
+
+/* Footer */
+.iav-footer {
+  flex-shrink: 0;
+  padding: 16px 20px 20px;
+  background: white;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.iav-input-row {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+
+.iav-text-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--ia-border-light);
+  border-radius: 20px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.iav-text-input:focus {
+  border-color: var(--ia-mic);
+}
+
+.iav-send-btn {
+  padding: 10px 16px;
+  background: var(--ia-mic);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.iav-send-btn:hover {
+  background: #c74d21;
+  transform: translateY(-1px);
+}
+
+.iav-send-btn:active {
+  transform: translateY(0);
+}
+
+/* Microphone Button */
+.iav-mic-container {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+
+.iav-mic-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--ia-mic);
+  border: none;
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(226, 90, 44, 0.3);
+  position: relative;
+  z-index: 2;
+}
+
+.iav-mic-btn:hover {
+  background: #c74d21;
+  transform: scale(1.05);
+}
+
+.iav-mic-btn:active {
+  transform: scale(0.98);
+}
+
+.iav-mic-btn.connected {
+  background: var(--ia-green);
+  box-shadow: 0 4px 12px rgba(60, 196, 124, 0.3);
+}
+
+.iav-mic-btn.connected:hover {
+  background: #33a866;
+}
+
+/* Microphone Waves */
+.iav-mic-waves {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.iav-mic-wave {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 2px solid var(--ia-mic);
+  opacity: 0;
+}
+
+.iav-mic-waves.active .iav-mic-wave {
+  animation: ripple 1.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.iav-mic-wave:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.iav-mic-wave:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.iav-mic-wave:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes ripple {
+  0% {
+    width: 72px;
+    height: 72px;
+    opacity: 1;
+  }
+  100% {
+    width: 120px;
+    height: 120px;
+    opacity: 0;
+  }
+}
+
+/* Hidden Audio Element */
+#iav-audio {
+  display: none;
+}
+
+/* Loading State */
+.iav-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--ia-text-gray);
+  font-size: 14px;
+}
+
+.iav-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--ia-mic);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 400px) {
+  #ia-voz {
+    width: 100%;
+    max-width: 380px;
+    height: 100vh;
+    max-height: 680px;
+    border-radius: 0;
+  }
+}
