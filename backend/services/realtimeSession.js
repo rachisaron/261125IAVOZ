@@ -1,9 +1,17 @@
 import OpenAI from 'openai';
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY 
-});
+// Note: OpenAI client will be null if API key is missing - services will handle this gracefully
+let openai = null;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ 
+      apiKey: process.env.OPENAI_API_KEY 
+    });
+  }
+} catch (error) {
+  console.error('Failed to initialize OpenAI client:', error);
+}
 
 /**
  * Creates an ephemeral Realtime session token
@@ -14,6 +22,10 @@ const openai = new OpenAI({
  * @returns {Promise<{client_secret: string}>}
  */
 export async function createRealtimeEphemeral({ model, voice, instructions }) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not set. Please add it to your Replit Secrets.');
+  }
+
   try {
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',

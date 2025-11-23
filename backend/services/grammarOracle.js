@@ -7,9 +7,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY 
-});
+// Note: OpenAI client will be null if API key is missing - service will handle this gracefully
+let openai = null;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ 
+      apiKey: process.env.OPENAI_API_KEY 
+    });
+  }
+} catch (error) {
+  console.error('Failed to initialize OpenAI client:', error);
+}
 
 // JSON schema for strict response format
 const grammarResponseSchema = {
@@ -42,6 +50,16 @@ const grammarResponseSchema = {
  * @returns {Promise<{is_error: boolean, error: string, fix: string, reason: string}>}
  */
 export async function analyzeGrammar(text) {
+  if (!openai || !process.env.OPENAI_API_KEY) {
+    console.warn('OpenAI API key not set, returning conservative fallback');
+    return {
+      is_error: false,
+      error: text,
+      fix: text,
+      reason: "Está bien dicho."
+    };
+  }
+
   try {
     // Read the grammar oracle prompt
     const promptPath = path.join(__dirname, '../../prompts/grammar-oracle-prompt.md');

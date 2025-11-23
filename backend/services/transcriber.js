@@ -2,9 +2,17 @@ import OpenAI from 'openai';
 import fs from 'fs';
 
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY 
-});
+// Note: OpenAI client will be null if API key is missing - service will handle this gracefully
+let openai = null;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({ 
+      apiKey: process.env.OPENAI_API_KEY 
+    });
+  }
+} catch (error) {
+  console.error('Failed to initialize OpenAI client:', error);
+}
 
 /**
  * Transcribes audio file to Spanish text
@@ -12,6 +20,10 @@ const openai = new OpenAI({
  * @returns {Promise<{transcript: string}>}
  */
 export async function transcribeAudio(audioFilePath) {
+  if (!openai || !process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not set. Please add it to your Replit Secrets.');
+  }
+
   try {
     const audioReadStream = fs.createReadStream(audioFilePath);
 
