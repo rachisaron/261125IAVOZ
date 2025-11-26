@@ -1,20 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Profe ELE - IA Voz: Aprende español conversando con un profesor virtual impulsado por inteligencia artificial">
-  <title>Profe ELE – IA Voz</title>
-  <link rel="stylesheet" href="ia-voz.css">
-</head>
-<body>
-  <!-- Main widget container -->
-  <div id="ia-voz"></div>
+  <head>
+    <meta charset="utf-8" />
+    <title>Profe ELE – IA Voz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./ia-voz.css" />
+  </head>
+  <body>
+    <div id="app-bg">
+      <div id="ia-voz"></div>
+    </div>
 
-  <!-- Core logic (no DOM) -->
-  <script src="ia-voz-core.js"></script>
-  
-  <!-- UI layer (DOM manipulation) -->
-  <script src="ia-voz-ui.js"></script>
-</body>
+    <script src="./ia-voz-core.js" type="module"></script>
+    <script src="./ia-voz-ui.js" type="module"></script>
+  </body>
 </html>

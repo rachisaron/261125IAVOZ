@@ -1,50 +1,23 @@
-import OpenAI from 'openai';
-import fs from 'fs';
+// Uses gpt-4o-transcribe via the audio/transcriptions REST endpoint
+export async function transcribeOnce(buffer, mimetype = "audio/webm") {
+  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-// Note: OpenAI client will be null if API key is missing - service will handle this gracefully
-let openai = null;
-try {
-  if (process.env.OPENAI_API_KEY) {
-    openai = new OpenAI({ 
-      apiKey: process.env.OPENAI_API_KEY 
-    });
+  const form = new FormData();
+  const file = new Blob([buffer], { type: mimetype });
+  form.append("file", file, "speech.webm");
+  form.append("model", "gpt-4o-transcribe");
+  form.append("language", "es");
+
+  const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Transcription error: ${resp.status} ${txt}`);
   }
-} catch (error) {
-  console.error('Failed to initialize OpenAI client:', error);
-}
-
-/**
- * Transcribes audio file to Spanish text
- * @param {string} audioFilePath - Path to audio file
- * @returns {Promise<{transcript: string}>}
- */
-export async function transcribeAudio(audioFilePath) {
-  if (!openai || !process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set. Please add it to your Replit Secrets.');
-  }
-
-  try {
-    const audioReadStream = fs.createReadStream(audioFilePath);
-
-    const transcription = await openai.audio.transcriptions.create({
-      file: audioReadStream,
-      model: 'gpt-4o-transcribe',
-      language: 'es'
-    });
-
-    return {
-      transcript: transcription.text
-    };
-  } catch (error) {
-    console.error('Error transcribing audio:', error);
-    throw error;
-  } finally {
-    // Clean up the uploaded file
-    try {
-      fs.unlinkSync(audioFilePath);
-    } catch (cleanupError) {
-      console.error('Error cleaning up audio file:', cleanupError);
-    }
-  }
+  const data = await resp.json(); // { text: "..." }
+  return data.text || "";
 }

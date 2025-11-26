@@ -1,110 +1,80 @@
-import OpenAI from 'openai';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from "path";
+import fs from "fs/promises";
+import { fileURLToPath } from "url";
+import OpenAI from "openai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-// Note: OpenAI client will be null if API key is missing - service will handle this gracefully
-let openai = null;
-try {
-  if (process.env.OPENAI_API_KEY) {
-    openai = new OpenAI({ 
-      apiKey: process.env.OPENAI_API_KEY 
-    });
-  }
-} catch (error) {
-  console.error('Failed to initialize OpenAI client:', error);
-}
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// JSON schema for strict response format
-const grammarResponseSchema = {
-  type: "object",
-  properties: {
-    is_error: {
-      type: "boolean",
-      description: "Whether there is a grammatical error"
+// Strict JSON schema to avoid hallucinated fields
+const schema = {
+  name: "CorrectionSchema",
+  schema: {
+    type: "object",
+    properties: {
+      is_error: { type: "boolean" },
+      error: { type: "string" },
+      fix: { type: "string" },
+      reason: { type: "string" },
     },
-    error: {
-      type: "string",
-      description: "The original sentence from the student"
-    },
-    fix: {
-      type: "string",
-      description: "The corrected sentence (same as error if no error)"
-    },
-    reason: {
-      type: "string",
-      description: "Brief explanation in Spanish (8-10 words max)"
-    }
+    required: ["is_error", "error", "fix", "reason"],
+    additionalProperties: false,
   },
-  required: ["is_error", "error", "fix", "reason"],
-  additionalProperties: false
+  strict: true,
 };
 
-/**
- * Analyzes text for grammar errors using GPT-5-mini
- * @param {string} text - The text to analyze
- * @returns {Promise<{is_error: boolean, error: string, fix: string, reason: string}>}
- */
-export async function analyzeGrammar(text) {
-  if (!openai || !process.env.OPENAI_API_KEY) {
-    console.warn('OpenAI API key not set, returning conservative fallback');
-    return {
-      is_error: false,
-      error: text,
-      fix: text,
-      reason: "Está bien dicho."
-    };
-  }
+export async function runGrammarOracle(userText) {
+  const promptPath = path.join(
+    __dirname,
+    "..",
+    "..",
+    "prompts",
+    "grammar-oracle-prompt.md",
+  );
+  const systemPrompt = await fs.readFile(promptPath, "utf8");
 
+  const response = await openai.responses.create({
+    model: "gpt-5-mini",
+    reasoning: { effort: "low" },
+    // System instructions + user text
+    input: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: [{ type: "text", text: userText }] },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: schema,
+    },
+  });
+
+  const raw = response.output[0]?.content?.[0]?.text || "{}";
+  let parsed;
   try {
-    // Read the grammar oracle prompt
-    const promptPath = path.join(__dirname, '../../prompts/grammar-oracle-prompt.md');
-    const systemPrompt = fs.readFileSync(promptPath, 'utf-8');
-
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        {
-          role: 'user',
-          content: text
-        }
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "grammar_analysis",
-          strict: true,
-          schema: grammarResponseSchema
-        }
-      }
-    });
-
-    const result = JSON.parse(response.choices[0].message.content);
-    
-    // Validate the response has all required fields
-    if (typeof result.is_error !== 'boolean' || 
-        !result.error || !result.fix || !result.reason) {
-      throw new Error('Invalid response format from grammar oracle');
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Error analyzing grammar:', error);
-    
-    // Return conservative fallback
-    return {
+    parsed = JSON.parse(raw);
+  } catch (_e) {
+    // Fallback conservative
+    parsed = {
       is_error: false,
-      error: text,
-      fix: text,
-      reason: "Está bien dicho."
+      error: userText,
+      fix: userText,
+      reason: "Está bien dicho.",
     };
   }
+  // Guardrail
+  if (
+    typeof parsed.is_error !== "boolean" ||
+    typeof parsed.error !== "string" ||
+    typeof parsed.fix !== "string" ||
+    typeof parsed.reason !== "string"
+  ) {
+    parsed = {
+      is_error: false,
+      error: userText,
+      fix: userText,
+      reason: "Está bien dicho.",
+    };
+  }
+  return parsed;
 }

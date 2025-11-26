@@ -1,13 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import multer from 'multer';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-import dotenv from 'dotenv';
-import { createRealtimeEphemeral } from './services/realtimeSession.js';
-import { analyzeGrammar } from './services/grammarOracle.js';
-import { transcribeAudio } from './services/transcriber.js';
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import fs from "fs/promises";
+import { fileURLToPath } from "url";
+import multer from "multer";
+
+import { createRealtimeEphemeral } from "./services/realtimeSession.js";
+import { runGrammarOracle } from "./services/grammarOracle.js";
+import { transcribeOnce } from "./services/transcriber.js";
 
 dotenv.config();
 
@@ -15,117 +16,96 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
-// Configure multer for file uploads (25 MB limit)
-const upload = multer({
-  dest: 'uploads/',
-  limits: { fileSize: 25 * 1024 * 1024 } // 25 MB
+// Static files (frontend)
+app.use("/", express.static(path.join(__dirname, "..", "frontend")));
+
+// ---- CONFIG ----
+const CONFIG = {
+  realtimeModel: "gpt-realtime",
+
+  realtimeVoice: "verse", // o la mejor voz actual disponible
+  grammarModel: "gpt-5-mini",
+  transcribeModel: "gpt-4o-transcribe",
+  correctionsEnabled: true,
+  readCorrectionsAloud: true,
+  realtimeTemperature: Number(process.env.REALTIME_TEMPERATURE ?? 0.6),
+};
+
+app.get("/config", (_req, res) => {
+  res.json(CONFIG);
 });
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// GET /config - Returns configuration for the frontend
-app.get('/config', (req, res) => {
-  res.json({
-    realtimeModel: 'gpt-realtime',
-    realtimeVoice: 'verse',
-    grammarModel: 'gpt-5-mini',
-    transcribeModel: 'gpt-4o-transcribe',
-    correctionsEnabled: true,
-    readCorrectionsAloud: true
-  });
-});
-
-// POST /session - Creates a Realtime session
-app.post('/session', async (req, res) => {
+// ---- SESSION (Realtime) ----
+app.post("/session", async (_req, res) => {
   try {
-    // Read the realtime prompt
-    const promptPath = path.join(__dirname, '../prompts/realtime-prompt.md');
-    const instructions = fs.readFileSync(promptPath, 'utf-8');
+    const promptPath = path.join(
+      __dirname,
+      "..",
+      "prompts",
+      "realtime-prompt.md",
+    );
+    const instructions = await fs.readFile(promptPath, "utf8");
 
     const { client_secret } = await createRealtimeEphemeral({
-      model: 'gpt-realtime',
-      voice: 'verse',
-      instructions
+      model: CONFIG.realtimeModel,
+      voice: CONFIG.realtimeVoice,
+      instructions,
     });
 
     res.json({ client_secret });
-  } catch (error) {
-    console.error('Error creating session:', error);
-    res.status(500).json({ 
-      error: 'Failed to create session',
-      message: error.message 
-    });
+  } catch (err) {
+    console.error("SESSION ERROR:", err);
+    res.status(500).json({ error: "Failed to create Realtime session" });
   }
 });
 
-// POST /correct - Analyzes text for grammar errors
-app.post('/correct', async (req, res) => {
+// ---- CORRECT (Grammar Oracle) ----
+app.post("/correct", async (req, res) => {
   try {
-    const { text } = req.body;
-
-    if (!text || typeof text !== 'string') {
-      return res.status(400).json({ 
-        error: 'Invalid request',
-        message: 'Text field is required and must be a string' 
-      });
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing text" });
     }
-
-    const result = await analyzeGrammar(text);
+    const result = await runGrammarOracle(text);
     res.json(result);
-  } catch (error) {
-    console.error('Error analyzing grammar:', error);
-    
-    // Return conservative fallback on error
+  } catch (err) {
+    console.error("CORRECT ERROR:", err);
+    // Fallback conservative
     res.json({
       is_error: false,
-      error: req.body.text,
-      fix: req.body.text,
-      reason: "Está bien dicho."
+      error: req.body?.text || "",
+      fix: req.body?.text || "",
+      reason: "Está bien dicho.",
     });
   }
 });
 
-// POST /transcribe - Transcribes audio to text
-app.post('/transcribe', upload.single('audio'), async (req, res) => {
+// ---- TRANSCRIBE (gpt-4o-transcribe) ----
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+app.post("/transcribe", upload.single("audio"), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ 
-        error: 'Invalid request',
-        message: 'Audio file is required' 
-      });
-    }
-
-    const result = await transcribeAudio(req.file.path);
-    res.json(result);
-  } catch (error) {
-    console.error('Error transcribing audio:', error);
-    res.status(500).json({ 
-      error: 'Failed to transcribe audio',
-      message: error.message 
-    });
+    if (!req.file) return res.status(400).json({ error: "Missing audio file" });
+    const transcript = await transcribeOnce(req.file.buffer, req.file.mimetype);
+    res.json({ transcript });
+  } catch (err) {
+    console.error("TRANSCRIBE ERROR:", err);
+    res.status(500).json({ error: "Transcription failed" });
   }
 });
 
-// Serve static frontend files
-const frontendPath = path.join(__dirname, '../frontend');
-app.use(express.static(frontendPath));
-
-// Fallback to index.html for client-side routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
+// ---- SPA fallback ----
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Profe ELE – IA Voz server running on http://localhost:${PORT}`);
 });

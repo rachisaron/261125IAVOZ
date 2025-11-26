@@ -30,7 +30,6 @@ Devuelve **SOLO** un objeto JSON con esta estructura exacta:
 ## Reglas para el campo "reason"
 - Máximo 8-10 palabras en español
 - Directo y claro
-- Si no hay error: "Está bien dicho."
 - Si hay error: explica QUÉ está mal, no toda la regla gramatical
 
 ## Ejemplos
@@ -59,29 +58,6 @@ Devuelve **SOLO** un objeto JSON con esta estructura exacta:
 }
 ```
 
-### Ejemplo 3: Oración correcta
-**Input:** "Me gusta mucho la música"
-**Output:**
-```json
-{
-  "is_error": false,
-  "error": "Me gusta mucho la música",
-  "fix": "Me gusta mucho la música",
-  "reason": "Está bien dicho."
-}
-```
-
-### Ejemplo 4: Oración con variación aceptable (NO error)
-**Input:** "Voy a ir al cine mañana"
-**Output:**
-```json
-{
-  "is_error": false,
-  "error": "Voy a ir al cine mañana",
-  "fix": "Voy a ir al cine mañana",
-  "reason": "Está bien dicho."
-}
-```
 
 ## Importante
 - Devuelve **SOLO** el JSON, sin texto adicional

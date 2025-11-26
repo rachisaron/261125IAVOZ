@@ -1,72 +1,46 @@
-/**
- * Profe ELE - IA Voz Core Logic
- * Handles WebRTC, Realtime API, audio recording, transcription, and correction queue
- * NO DOM MANIPULATION - Pure logic only
- */
+// Core logic for Profe ELE – IA Voz (no DOM here)
+export class IAVozCore {
+  constructor({
+    onStatusChange,
+    onUserTranscript,
+    onAssistantMessage,
+    onCorrectionCard,
+    onAudioStream,
+    onTalking,
+  } = {}) {
+    // Callbacks (UI injects)
+    this.cb = {
+      onStatusChange: onStatusChange || (() => {}),
+      onUserTranscript: onUserTranscript || (() => {}),
+      onAssistantMessage: onAssistantMessage || (() => {}),
+      onCorrectionCard: onCorrectionCard || (() => {}),
+      onAudioStream: onAudioStream || (() => {}),
+      onTalking: onTalking || (() => {}),
+    };
 
-class IAVozCore {
-  constructor() {
-    // Connection state
+    // State
     this.connected = false;
     this.assistantSpeaking = false;
     this.studentSpeaking = false;
-    
-    // WebRTC components
-    this.peerConnection = null;
-    this.dataChannel = null;
-    this.audioElement = null;
-    
-    // Recording state
-    this.mediaRecorder = null;
-    this.audioChunks = [];
-    this.currentStream = null;
-    
-    // Correction queue
+    this.lastUserTranscript = "";
     this.pendingCorrections = [];
-    this.turnIndex = 0;
-    this.lastUserTranscript = '';
-    
-    // Configuration
-    this.config = null;
-    this.ephemeralToken = null;
-    
-    // Callbacks (injected by UI)
-    this.callbacks = {
-      onStatusChange: () => {},
-      onUserTranscript: () => {},
-      onAssistantMessage: () => {},
-      onCorrectionCard: () => {},
-      onAudioStream: () => {},
-      onTalking: () => {},
-      onError: () => {}
-    };
+
+    // Internals
+    this.pc = null;
+    this.dc = null;
+    this.micStream = null;
+    this.recorder = null;
+    this.chunks = [];
+    this.answerTextBuffer = {}; // id -> accumulating text
   }
 
-  /**
-   * Set callbacks for UI interaction
-   */
-  setCallbacks(callbacks) {
-    this.callbacks = { ...this.callbacks, ...callbacks };
+  async fetchConfig() {
+    const res = await fetch("/config");
+    if (!res.ok) throw new Error("No /config");
+    this.cfg = await res.json();
+    return this.cfg;
   }
 
-  /**
-   * Load configuration from backend
-   */
-  async loadConfig() {
-    try {
-      const response = await fetch('/config');
-      this.config = await response.json();
-      return this.config;
-    } catch (error) {
-      console.error('Error loading config:', error);
-      this.callbacks.onError('Failed to load configuration');
-      throw error;
-    }
-  }
-
-  /**
-   * Toggle connection (connect/disconnect)
-   */
   async toggleConnection() {
     if (this.connected) {
       await this.disconnect();
@@ -75,366 +49,269 @@ class IAVozCore {
     }
   }
 
-  /**
-   * Connect to Realtime API
-   */
   async connect() {
     try {
-      // Load config if not already loaded
-      if (!this.config) {
-        await this.loadConfig();
-      }
+      await this.fetchConfig();
 
-      // Create ephemeral session
-      const sessionResponse = await fetch('/session', { method: 'POST' });
-      const { client_secret } = await sessionResponse.json();
-      this.ephemeralToken = client_secret;
+      // 1) Get ephemeral client_secret for Realtime
+      const sessRes = await fetch("/session", { method: "POST" });
+      const { client_secret } = await sessRes.json();
+      if (!client_secret?.value)
+        throw new Error("No client_secret from /session");
+      const token = client_secret.value;
 
-      // Get microphone access
-      this.currentStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+      // 2) Create RTCPeerConnection
+      this.pc = new RTCPeerConnection();
+      this.dc = this.pc.createDataChannel("oai-events");
+      this.dc.onopen = () => this.cb.onStatusChange("datachannel_open");
+      this.dc.onmessage = (ev) => this.handleRealtimeEvent(ev);
+
+      // Remote audio track to UI
+      this.pc.ontrack = (e) => {
+        const [remoteStream] = e.streams;
+        this.cb.onAudioStream(remoteStream);
+      };
+
+      this.pc.onconnectionstatechange = () => {
+        if (this.pc.connectionState === "connected") {
+          this.connected = true;
+          this.cb.onStatusChange("connected");
+          // Ask model to greet once
+          this.dc.send(
+            JSON.stringify({
+              type: "response.create",
+              response: { temperature: this.cfg.realtimeTemperature },
+            }),
+          );
+        } else if (
+          this.pc.connectionState === "disconnected" ||
+          this.pc.connectionState === "failed" ||
+          this.pc.connectionState === "closed"
+        ) {
+          this.connected = false;
+          this.cb.onStatusChange("disconnected");
         }
+      };
+
+      // 3) Get mic, add tracks
+      this.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: false,
       });
+      this.micStream
+        .getTracks()
+        .forEach((t) => this.pc.addTrack(t, this.micStream));
 
-      // Create peer connection
-      this.peerConnection = new RTCPeerConnection();
+      // 4) Negotiate SDP with OpenAI Realtime via fetch (WebRTC over HTTPS)
+      const offer = await this.pc.createOffer();
+      await this.pc.setLocalDescription(offer);
 
-      // Add audio track
-      this.currentStream.getTracks().forEach(track => {
-        this.peerConnection.addTrack(track, this.currentStream);
-      });
-
-      // Handle incoming audio
-      this.peerConnection.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        this.callbacks.onAudioStream(remoteStream);
-      };
-
-      // Create data channel for text messages
-      this.dataChannel = this.peerConnection.createDataChannel('oai-events');
-      
-      this.dataChannel.onopen = () => {
-        console.log('Data channel opened');
-      };
-
-      this.dataChannel.onmessage = (event) => {
-        this.handleDataChannelMessage(event.data);
-      };
-
-      // Create and set local description
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
-
-      // Send offer to OpenAI Realtime API
       const sdpResponse = await fetch(
-        `https://api.openai.com/v1/realtime?model=${this.config.realtimeModel}`,
+        `https://api.openai.com/v1/realtime?model=${encodeURIComponent(this.cfg.realtimeModel)}`,
         {
-          method: 'POST',
+          method: "POST",
+          body: offer.sdp,
           headers: {
-            'Authorization': `Bearer ${this.ephemeralToken}`,
-            'Content-Type': 'application/sdp'
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/sdp",
           },
-          body: offer.sdp
-        }
+        },
       );
 
       const answerSDP = await sdpResponse.text();
-      await this.peerConnection.setRemoteDescription({
-        type: 'answer',
-        sdp: answerSDP
+      await this.pc.setRemoteDescription({ type: "answer", sdp: answerSDP });
+
+      // Recorder for user utterances (for /transcribe)
+      this.recorder = new MediaRecorder(this.micStream, {
+        mimeType: "audio/webm",
       });
-
-      this.connected = true;
-      this.callbacks.onStatusChange('connected');
-
-      // Set up media recorder for transcription
-      this.setupMediaRecorder();
-
-    } catch (error) {
-      console.error('Connection error:', error);
-      this.callbacks.onError('Failed to connect: ' + error.message);
-      await this.disconnect();
-    }
-  }
-
-  /**
-   * Disconnect from Realtime API
-   */
-  async disconnect() {
-    // Stop media recorder
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
-
-    // Stop tracks
-    if (this.currentStream) {
-      this.currentStream.getTracks().forEach(track => track.stop());
-      this.currentStream = null;
-    }
-
-    // Close data channel
-    if (this.dataChannel) {
-      this.dataChannel.close();
-      this.dataChannel = null;
-    }
-
-    // Close peer connection
-    if (this.peerConnection) {
-      this.peerConnection.close();
-      this.peerConnection = null;
-    }
-
-    this.connected = false;
-    this.assistantSpeaking = false;
-    this.studentSpeaking = false;
-    this.ephemeralToken = null;
-    
-    this.callbacks.onStatusChange('disconnected');
-    this.callbacks.onTalking(false);
-  }
-
-  /**
-   * Set up media recorder for audio capture
-   */
-  setupMediaRecorder() {
-    if (!this.currentStream) return;
-
-    this.mediaRecorder = new MediaRecorder(this.currentStream, {
-      mimeType: 'audio/webm'
-    });
-
-    this.mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        this.audioChunks.push(event.data);
-      }
-    };
-
-    this.mediaRecorder.onstop = async () => {
-      await this.processRecording();
-    };
-
-    this.mediaRecorder.start();
-  }
-
-  /**
-   * Process recorded audio (transcribe and check grammar)
-   */
-  async processRecording() {
-    if (this.audioChunks.length === 0) return;
-
-    try {
-      // Create blob from chunks
-      const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-      this.audioChunks = [];
-
-      // Create form data for upload
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
-
-      // Transcribe audio
-      const transcriptResponse = await fetch('/transcribe', {
-        method: 'POST',
-        body: formData
-      });
-
-      const { transcript } = await transcriptResponse.json();
-      
-      if (transcript && transcript.trim()) {
-        this.lastUserTranscript = transcript;
-        this.callbacks.onUserTranscript(transcript);
-
-        // Check for grammar errors
-        await this.checkGrammar(transcript);
-      }
-
-      // Restart recording if still connected
-      if (this.connected && this.currentStream) {
-        this.audioChunks = [];
-        this.mediaRecorder = new MediaRecorder(this.currentStream, {
-          mimeType: 'audio/webm'
-        });
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            this.audioChunks.push(event.data);
-          }
-        };
-        this.mediaRecorder.onstop = async () => {
-          await this.processRecording();
-        };
-        this.mediaRecorder.start();
-      }
-
-    } catch (error) {
-      console.error('Error processing recording:', error);
-    }
-  }
-
-  /**
-   * Check grammar and queue corrections
-   */
-  async checkGrammar(text) {
-    try {
-      const response = await fetch('/correct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
-
-      const correction = await response.json();
-
-      // Always show correction card (even if no error)
-      const correctionObj = {
-        ...correction,
-        createdAt: Date.now(),
-        turnIndex: this.turnIndex++
+      this.recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) this.chunks.push(e.data);
       };
-
-      this.callbacks.onCorrectionCard(correctionObj);
-
-      // If there's an error, queue it for speaking
-      if (correction.is_error) {
-        this.pendingCorrections.push(correctionObj);
-        this.trySpeakNextCorrection();
-      }
-
-    } catch (error) {
-      console.error('Error checking grammar:', error);
-    }
-  }
-
-  /**
-   * Try to speak the next correction in queue
-   */
-  trySpeakNextCorrection() {
-    // Only speak if connected and no one is talking
-    if (!this.connected || this.assistantSpeaking || this.studentSpeaking) {
-      return;
-    }
-
-    if (this.pendingCorrections.length === 0) {
-      return;
-    }
-
-    // Get next correction
-    const correction = this.pendingCorrections.shift();
-
-    // Send correction to assistant via data channel
-    if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      const correctionMessage = `[CORRECCION]\nERROR: "${correction.error}"\nFIX: "${correction.fix}"\nREASON: "${correction.reason}"`;
-      
-      this.dataChannel.send(JSON.stringify({
-        type: 'response.create',
-        response: {
-          modalities: ['audio', 'text'],
-          instructions: correctionMessage
+      this.recorder.onstop = async () => {
+        const blob = new Blob(this.chunks, { type: "audio/webm" });
+        this.chunks = [];
+        try {
+          const form = new FormData();
+          form.append("audio", blob, "utterance.webm");
+          const r = await fetch("/transcribe", { method: "POST", body: form });
+          const { transcript } = await r.json();
+          this.lastUserTranscript = transcript || "";
+          if (this.lastUserTranscript) {
+            this.cb.onUserTranscript(this.lastUserTranscript);
+            // Ask correction oracle
+            this.requestCorrection(this.lastUserTranscript);
+          }
+        } catch (e) {
+          console.error("Transcribe failed", e);
         }
-      }));
+      };
+    } catch (e) {
+      console.error("Connect error", e);
+      this.cb.onStatusChange("error");
     }
   }
 
-  /**
-   * Handle messages from data channel
-   */
-  handleDataChannelMessage(data) {
+  async disconnect() {
     try {
-      const event = JSON.parse(data);
-
-      switch (event.type) {
-        case 'session.created':
-          console.log('Session created');
-          break;
-
-        case 'input_audio_buffer.speech_started':
-          this.studentSpeaking = true;
-          this.callbacks.onTalking(true);
-          
-          // Stop current recording to mark speech boundary
-          if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-            this.mediaRecorder.stop();
-          }
-          break;
-
-        case 'input_audio_buffer.speech_stopped':
-          this.studentSpeaking = false;
-          this.callbacks.onTalking(false);
-          
-          // Recording will automatically restart in processRecording
-          break;
-
-        case 'response.audio.delta':
-          // Assistant is speaking
-          if (!this.assistantSpeaking) {
-            this.assistantSpeaking = true;
-          }
-          break;
-
-        case 'response.audio.done':
-          this.assistantSpeaking = false;
-          // Try to speak next correction
-          this.trySpeakNextCorrection();
-          break;
-
-        case 'response.text.delta':
-          // Accumulate text
-          if (event.delta) {
-            // We could accumulate text here if needed
-          }
-          break;
-
-        case 'response.text.done':
-          if (event.text) {
-            this.callbacks.onAssistantMessage(event.text);
-          }
-          break;
-
-        case 'conversation.item.created':
-          // Item added to conversation
-          if (event.item?.role === 'assistant' && event.item?.content) {
-            const textContent = event.item.content.find(c => c.type === 'text');
-            if (textContent?.text) {
-              this.callbacks.onAssistantMessage(textContent.text);
-            }
-          }
-          break;
-
-        case 'error':
-          console.error('Realtime API error:', event);
-          this.callbacks.onError('Realtime error: ' + (event.error?.message || 'Unknown error'));
-          break;
-      }
-    } catch (error) {
-      console.error('Error handling data channel message:', error);
+      this.connected = false;
+      if (this.recorder && this.recorder.state !== "inactive")
+        this.recorder.stop();
+      if (this.dc && this.dc.readyState === "open") this.dc.close();
+      if (this.pc) this.pc.close();
+      if (this.micStream) this.micStream.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      console.warn("Disconnect issue", e);
+    } finally {
+      this.cb.onStatusChange("disconnected");
     }
   }
 
-  /**
-   * Send text message (optional feature)
-   */
+  // UI may call this to send typed text (optional)
   sendText(text) {
-    if (!this.connected || !this.dataChannel || this.dataChannel.readyState !== 'open') {
-      return;
-    }
-
-    this.dataChannel.send(JSON.stringify({
-      type: 'conversation.item.create',
+    if (!this.dc || this.dc.readyState !== "open") return;
+    const item = {
+      type: "conversation.item.create",
       item: {
-        type: 'message',
-        role: 'user',
-        content: [{
-          type: 'input_text',
-          text
-        }]
-      }
-    }));
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text }],
+      },
+    };
+    this.dc.send(JSON.stringify(item));
+    this.dc.send(
+      JSON.stringify({
+        type: "response.create",
+        response: { temperature: this.cfg.realtimeTemperature },
+      }),
+    );
+  }
 
-    this.dataChannel.send(JSON.stringify({
-      type: 'response.create'
-    }));
+  // Ask grammar oracle via REST
+  async requestCorrection(text) {
+    try {
+      const res = await fetch("/correct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const corr = await res.json();
+      if (corr && typeof corr.is_error === "boolean") {
+        // Solo mostramos tarjeta cuando hay error
+        if (corr.is_error) {
+          this.cb.onCorrectionCard(corr);
+          this.pendingCorrections.push({
+            ...corr,
+            createdAt: Date.now(),
+            turnIndex: Date.now(),
+          });
+          this.trySpeakNextCorrection();
+        }
+      }
+    } catch (e) {
+      console.error("Correction failed", e);
+    }
+  }
+
+  trySpeakNextCorrection() {
+    if (!this.connected) return;
+    if (this.assistantSpeaking) return;
+    if (this.studentSpeaking) return;
+    if (this.pendingCorrections.length === 0) return;
+
+    const corr = this.pendingCorrections.shift();
+    if (!this.dc || this.dc.readyState !== "open") return;
+
+    // Build special block so the Realtime model follows the rule in the prompt
+    const block = `[CORRECCION]
+ERROR: "${corr.error}"
+FIX: "${corr.fix}"
+REASON: "${corr.reason}"`;
+
+    this.assistantSpeaking = true;
+    this.cb.onTalking(true);
+
+    this.dc.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: block }],
+        },
+      }),
+    );
+    this.dc.send(
+      JSON.stringify({
+        type: "response.create",
+        response: { temperature: this.cfg.realtimeTemperature },
+      }),
+    );
+  }
+
+  handleRealtimeEvent(ev) {
+    try {
+      const msg = JSON.parse(ev.data);
+      const t = msg.type || "";
+      console.log("[RT EVENT]", t, msg);
+
+      if (t.includes('speech')) {
+         console.log(`[DEBUG] Evento VAD recibido: ${t} a las ${new Date().toISOString()}`);
+      }
+
+      // Simple VAD signals from server
+      if (t === "input_audio_buffer.speech_started") {
+        this.studentSpeaking = true;
+        this.cb.onTalking(false);
+
+        console.time("grabacion_delay"); 
+        console.log("[DEBUG] El servidor dice que empezaste a hablar. Iniciando grabadora...");
+
+        // Start recorder segment
+        if (this.recorder?.state === "inactive") {
+            this.recorder.start(250);
+            console.log("[DEBUG] Recorder.start() ejecutado.");
+        } else {
+            console.warn("[DEBUG] La grabadora ya estaba activa o no existe.");
+        }
+      }
+      if (t === "input_audio_buffer.speech_stopped") {
+        console.log(`[DEBUG] El servidor dice que dejaste de hablar.`);
+        this.studentSpeaking = false;
+        // Stop and trigger /transcribe
+        if (this.recorder?.state === "recording") {
+            this.recorder.stop();
+            console.log("[DEBUG] Recorder.stop() ejecutado.");
+        }
+        // After user stops, we may speak pending corrections
+        setTimeout(() => this.trySpeakNextCorrection(), 150);
+      }
+
+      // Track assistant speech lifecycle
+      if (t === "response.started") {
+        this.assistantSpeaking = true;
+        this.cb.onTalking(true);
+      }
+      if (t === "response.output_text.delta" || t === "response.text.delta") {
+        const id = msg.response?.id || "default";
+        const delta = msg.delta || "";
+        console.log("[RT TEXT DELTA]", { id, delta, raw: msg });
+        this.answerTextBuffer[id] = (this.answerTextBuffer[id] || "") + delta;
+      }
+      if (t === "response.completed" || t === "response.done") {
+        const id = msg.response?.id || "default";
+        const full = this.answerTextBuffer[id] || "";
+        console.log("[RT RESPONSE DONE]", { id, full, raw: msg });
+        if (full) this.cb.onAssistantMessage(full);
+        delete this.answerTextBuffer[id];
+        this.assistantSpeaking = false;
+        this.cb.onTalking(false);
+        // If user not speaking, maybe speak next correction
+        if (!this.studentSpeaking) this.trySpeakNextCorrection();
+      }
+    } catch (e) {
+      // Unknown message types are expected sometimes
+    }
   }
 }
-
-// Export for use in UI
-window.IAVozCore = IAVozCore;
+```
