@@ -39,17 +39,19 @@ export async function runGrammarOracle(userText) {
     model: "gpt-5-mini",
     reasoning: { effort: "low" },
     // System instructions + user text
-    input: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: [{ type: "text", text: userText }] },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: schema,
+    instructions: systemPrompt,
+    input: userText,
+    text: {
+      format: {
+        type: "json_schema",
+        name: schema.name,
+        schema: schema.schema,
+        strict: schema.strict,
+      },
     },
   });
 
-  const raw = response.output[0]?.content?.[0]?.text || "{}";
+  const raw = response.output_text || "{}";
   let parsed;
   try {
     parsed = JSON.parse(raw);
