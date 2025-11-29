@@ -7,6 +7,7 @@ export class IAVozCore {
     onCorrectionCard,
     onAudioStream,
     onTalking,
+    onUserSpeechStart,
   } = {}) {
     // Callbacks (UI injects)
     this.cb = {
@@ -16,6 +17,7 @@ export class IAVozCore {
       onCorrectionCard: onCorrectionCard || (() => {}),
       onAudioStream: onAudioStream || (() => {}),
       onTalking: onTalking || (() => {}),
+      onUserSpeechStart: onUserSpeechStart || (() => {}),
     };
 
     // State
@@ -153,6 +155,16 @@ export class IAVozCore {
       // Cada vez que paramos la grabadora (un turno de alumno), montamos el Blob,
       // lo mandamos a /transcribe y reiniciamos la grabación para el siguiente turno.
       this.recorder.onstop = () => {
+        // --- CORRECCIÓN: Evitar transcripción si estamos desconectando ---
+        if (!this.connected) {
+          console.log(
+            "[REC] Desconexión en curso, ignorando último fragmento.",
+          );
+          this.chunks = [];
+          return;
+        }
+        // ----------------------------------------------------------------
+
         try {
           const blob = new Blob(this.chunks, { type: "audio/webm" });
           this.chunks = [];
@@ -375,6 +387,7 @@ REASON: "${corr.reason}"`;
       if (t === "input_audio_buffer.speech_started") {
         this.studentSpeaking = true;
         this.cb.onTalking(false);
+        this.cb.onUserSpeechStart();
 
         const len = this.chunks.length;
         const preRollStart = Math.max(0, len - this.preRollChunks);
@@ -436,14 +449,22 @@ REASON: "${corr.reason}"`;
         this.assistantSpeaking = true;
         this.cb.onTalking(true);
       }
-      if (t === "response.output_text.delta" || t === "response.text.delta") {
-        const id = msg.response?.id || "default";
+
+      // MODIFICACIÓN: Incluir response.audio_transcript.delta
+      if (
+        t === "response.output_text.delta" ||
+        t === "response.text.delta" ||
+        t === "response.audio_transcript.delta"
+      ) {
+        const id = msg.response_id || msg.response?.id || "default";
         const delta = msg.delta || "";
         console.log("[RT TEXT DELTA]", { id, delta, raw: msg });
         this.answerTextBuffer[id] = (this.answerTextBuffer[id] || "") + delta;
       }
+
+      // MODIFICACIÓN: Comprobar response_id en response.completed/.done
       if (t === "response.completed" || t === "response.done") {
-        const id = msg.response?.id || "default";
+        const id = msg.response?.id || msg.response_id || "default";
         const full = this.answerTextBuffer[id] || "";
         console.log("[RT RESPONSE DONE]", { id, full, raw: msg });
         if (full) this.cb.onAssistantMessage(full);

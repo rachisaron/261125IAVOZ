@@ -1,7 +1,7 @@
-import { IAVozCore } from './ia-voz-core.js';
+import { IAVozCore } from "./ia-voz-core.js";
 
-document.addEventListener('DOMContentLoaded', async () => {
-  const root = document.getElementById('ia-voz');
+document.addEventListener("DOMContentLoaded", async () => {
+  const root = document.getElementById("ia-voz");
 
   // --- DOM skeleton ---
   root.innerHTML = `
@@ -30,35 +30,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     </div>
   `;
 
-  const chat = root.querySelector('#iav-chat');
-  const micBtn = root.querySelector('#iav-mic');
-  const sendBtn = root.querySelector('#iav-send');
-  const textInput = root.querySelector('#iav-text');
-  const statusDot = root.querySelector('.iav-status-dot');
-  const remoteAudio = root.querySelector('#iav-remote-audio');
+  const chat = root.querySelector("#iav-chat");
+  const micBtn = root.querySelector("#iav-mic");
+  const sendBtn = root.querySelector("#iav-send");
+  const textInput = root.querySelector("#iav-text");
+  const statusDot = root.querySelector(".iav-status-dot");
+  const remoteAudio = root.querySelector("#iav-remote-audio");
+
+  // Variable para guardar la referencia a la burbuja "..."
+  let pendingUserBubble = null;
 
   // --- Helpers ---
-  const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
+  const scrollBottom = () => {
+    chat.scrollTop = chat.scrollHeight;
+  };
 
   const addUserBubble = (text) => {
-    const el = document.createElement('div');
-    el.className = 'iav-bubble iav-user';
+    const el = document.createElement("div");
+    el.className = "iav-bubble iav-user";
     el.textContent = text;
     chat.appendChild(el);
     scrollBottom();
   };
 
   const addAssistantBubble = (text) => {
-    const el = document.createElement('div');
-    el.className = 'iav-bubble iav-assistant';
+    const el = document.createElement("div");
+    el.className = "iav-bubble iav-assistant";
     el.textContent = text;
     chat.appendChild(el);
     scrollBottom();
   };
 
   const addCorrectionCard = ({ is_error, error, fix, reason }) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'iav-correction-card';
+    const wrap = document.createElement("div");
+    wrap.className = "iav-correction-card";
 
     wrap.innerHTML = `
       <div class="iav-corr-stripe"></div>
@@ -68,19 +73,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="iav-corr-row">
           <span class="iav-corr-icon iav-err">✕</span>
           <span class="iav-corr-label"><strong>Dijiste:</strong></span>
-          <span class="iav-corr-text iav-corr-text-error">${escapeHtml(error || '')}</span>
+          <span class="iav-corr-text iav-corr-text-error">${escapeHtml(error || "")}</span>
         </div>
 
         <div class="iav-corr-row">
           <span class="iav-corr-icon iav-ok">✔</span>
           <span class="iav-corr-label"><strong>Mejor di:</strong></span>
-          <span class="iav-corr-text iav-corr-text-fix">${escapeHtml(fix || '')}</span>
+          <span class="iav-corr-text iav-corr-text-fix">${escapeHtml(fix || "")}</span>
         </div>
 
         <div class="iav-corr-row">
           <span class="iav-corr-icon">💡</span>
           <span class="iav-corr-label"><strong>Por qué:</strong></span>
-          <span class="iav-corr-reason"><em>${escapeHtml(reason || '')}</em></span>
+          <span class="iav-corr-reason"><em>${escapeHtml(reason || "")}</em></span>
         </div>
       </div>
     `;
@@ -89,35 +94,71 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, m => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    }[m]));
+    return (s || "").replace(
+      /[&<>"']/g,
+      (m) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[m],
+    );
   }
 
   const setConnected = (on) => {
-    statusDot.dataset.status = on ? 'on' : 'off';
-    micBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    statusDot.dataset.status = on ? "on" : "off";
+    micBtn.setAttribute("aria-pressed", on ? "true" : "false");
   };
 
   const setTalking = (isTalking) => {
-    micBtn.classList.toggle('is-talking', !!isTalking);
+    micBtn.classList.toggle("is-talking", !!isTalking);
   };
 
   // --- Core instance ---
   const core = new IAVozCore({
     onStatusChange: (s) => {
-      if (s === 'connected') setConnected(true);
-      if (s === 'disconnected' || s === 'error') setConnected(false);
+      if (s === "connected") setConnected(true);
+      if (s === "disconnected" || s === "error") setConnected(false);
     },
-    onUserTranscript: (text) => addUserBubble(text),
+    // Cuando el usuario empieza a hablar, pintamos "..."
+    onUserSpeechStart: () => {
+      // Si ya había una pendiente, la dejamos como estaba (raro, pero defensivo)
+      if (pendingUserBubble) return;
+
+      pendingUserBubble = document.createElement("div");
+      pendingUserBubble.className = "iav-bubble iav-user";
+      pendingUserBubble.textContent = "...";
+      // Opcional: bajar opacidad para indicar que es temporal
+      pendingUserBubble.style.opacity = "0.6";
+
+      chat.appendChild(pendingUserBubble);
+      scrollBottom();
+    },
+    // Cuando llega la transcripción completa
+    onUserTranscript: (text) => {
+      if (pendingUserBubble) {
+        // Reemplazamos los "..." por el texto real
+        pendingUserBubble.textContent = text;
+        pendingUserBubble.style.opacity = "1";
+        pendingUserBubble = null; // Limpiamos la referencia
+        scrollBottom();
+      } else {
+        // Si por alguna razón no se creó el placeholder, creamos burbuja normal
+        addUserBubble(text);
+      }
+    },
     onAssistantMessage: (text) => addAssistantBubble(text),
     onCorrectionCard: (obj) => addCorrectionCard(obj),
-    onAudioStream: (stream) => { remoteAudio.srcObject = stream; },
-    onTalking: (v) => setTalking(v)
+    onAudioStream: (stream) => {
+      remoteAudio.srcObject = stream;
+    },
+    onTalking: (v) => setTalking(v),
   });
 
   // --- Events ---
-  micBtn.addEventListener('click', async () => {
+  micBtn.addEventListener("click", async () => {
     micBtn.disabled = true;
     try {
       await core.toggleConnection();
@@ -126,15 +167,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  sendBtn.addEventListener('click', () => {
+  sendBtn.addEventListener("click", () => {
     const txt = textInput.value.trim();
     if (!txt) return;
     addUserBubble(txt);
-    textInput.value = '';
+    textInput.value = "";
     core.sendText(txt);
   });
 
-  textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendBtn.click();
+  textInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendBtn.click();
   });
 });
