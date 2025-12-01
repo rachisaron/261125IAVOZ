@@ -25,7 +25,8 @@ const schema = {
   strict: true,
 };
 
-export async function runGrammarOracle(userText) {
+// Modificada para aceptar contexto
+export async function runGrammarOracle(userText, contextStr = "") {
   const promptPath = path.join(
     __dirname,
     "..",
@@ -35,12 +36,21 @@ export async function runGrammarOracle(userText) {
   );
   const systemPrompt = await fs.readFile(promptPath, "utf8");
 
+  // Construimos el input combinado
+  const combinedInput = `
+CONTEXTO PREVIO (Lo que dijo el profesor):
+"${contextStr || "(Ninguno)"}"
+
+FRASE DEL ALUMNO A ANALIZAR:
+"${userText}"
+`.trim();
+
   const response = await openai.responses.create({
     model: "gpt-5-mini",
     reasoning: { effort: "low" },
     // System instructions + user text
     instructions: systemPrompt,
-    input: userText,
+    input: combinedInput, // Enviamos todo junto
     text: {
       format: {
         type: "json_schema",

@@ -65,11 +65,14 @@ app.post("/session", async (_req, res) => {
 // ---- CORRECT (Grammar Oracle) ----
 app.post("/correct", async (req, res) => {
   try {
-    const { text } = req.body || {};
+    const { text, context } = req.body || {}; // <-- Modificado para recibir contexto
+
     if (!text || typeof text !== "string") {
       return res.status(400).json({ error: "Missing text" });
     }
-    const result = await runGrammarOracle(text);
+
+    // Pasamos el contexto al servicio
+    const result = await runGrammarOracle(text, context);
     res.json(result);
   } catch (err) {
     console.error("CORRECT ERROR:", err);

@@ -25,6 +25,7 @@ export class IAVozCore {
     this.assistantSpeaking = false;
     this.studentSpeaking = false;
     this.lastUserTranscript = "";
+    this.lastAssistantMessage = ""; // <--- NUEVO: Contexto del profesor
     this.pendingCorrections = [];
 
     // Internals
@@ -155,7 +156,7 @@ export class IAVozCore {
       // Cada vez que paramos la grabadora (un turno de alumno), montamos el Blob,
       // lo mandamos a /transcribe y reiniciamos la grabación para el siguiente turno.
       this.recorder.onstop = () => {
-        // --- CORRECCIÓN: Evitar transcripción si estamos desconectando ---
+        // Evitar transcripción si estamos desconectando
         if (!this.connected) {
           console.log(
             "[REC] Desconexión en curso, ignorando último fragmento.",
@@ -163,7 +164,6 @@ export class IAVozCore {
           this.chunks = [];
           return;
         }
-        // ----------------------------------------------------------------
 
         try {
           const blob = new Blob(this.chunks, { type: "audio/webm" });
@@ -250,11 +250,19 @@ export class IAVozCore {
   // Ask grammar oracle via REST
   async requestCorrection(text) {
     try {
+      // --- MODIFICACIÓN: Enviar también el contexto ---
+      const payload = {
+        text,
+        context: this.lastAssistantMessage || "",
+      };
+
       const res = await fetch("/correct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(payload),
       });
+      // ------------------------------------------------
+
       const corr = await res.json();
       if (corr && typeof corr.is_error === "boolean") {
         // Solo mostramos tarjeta cuando hay error
@@ -450,7 +458,7 @@ REASON: "${corr.reason}"`;
         this.cb.onTalking(true);
       }
 
-      // MODIFICACIÓN: Incluir response.audio_transcript.delta
+      // Incluir response.audio_transcript.delta
       if (
         t === "response.output_text.delta" ||
         t === "response.text.delta" ||
@@ -462,12 +470,19 @@ REASON: "${corr.reason}"`;
         this.answerTextBuffer[id] = (this.answerTextBuffer[id] || "") + delta;
       }
 
-      // MODIFICACIÓN: Comprobar response_id en response.completed/.done
+      // Comprobar response_id en response.completed/.done
       if (t === "response.completed" || t === "response.done") {
         const id = msg.response?.id || msg.response_id || "default";
         const full = this.answerTextBuffer[id] || "";
         console.log("[RT RESPONSE DONE]", { id, full, raw: msg });
-        if (full) this.cb.onAssistantMessage(full);
+
+        // --- MODIFICACIÓN: Guardar contexto ---
+        if (full) {
+          this.lastAssistantMessage = full; // Guardamos lo que dijo el profe
+          this.cb.onAssistantMessage(full);
+        }
+        // --------------------------------------
+
         delete this.answerTextBuffer[id];
         this.assistantSpeaking = false;
         this.cb.onTalking(false);
