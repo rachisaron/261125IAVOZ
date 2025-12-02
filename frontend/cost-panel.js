@@ -16,6 +16,8 @@ const costEntries = [];
  * Crea el panel de costes en el DOM. Si ya existe, no hace nada.
  */
 export function initCostPanel() {
+  console.log("[CostPanel] initCostPanel llamado");
+
   // Comprueba si el panel ya existe
   if (document.getElementById("cost-panel")) return;
 
@@ -41,10 +43,11 @@ export function initCostPanel() {
 /**
  * Añade una nueva entrada de coste al panel.
  * @param {Object} entry Objeto con los datos de la interacción:
- * { modelo: string, tokensEntrada: number, tokensSalida: number, precioEntrada: number,
- *   precioSalida: number, costeTotal: number }
+ * { modelo: string, tokensEntrada: number, tokensSalida: number,
+ *   precioEntrada: number, precioSalida: number, costeTotal: number }
  */
 export function addCostEntry(entry) {
+  console.log("[CostPanel] addCostEntry", entry);
   costEntries.push(entry);
   renderCostEntries();
 }
@@ -64,13 +67,16 @@ export function calculateCost(
   modelKey,
   tokensEntrada,
   tokensSalida,
-  audioTokens = 0,
+  audioTokens = 0
 ) {
   const pricing = PRICING[modelKey];
-  if (!pricing) return 0;
+  if (!pricing) {
+    console.warn("[CostPanel] Modelo sin pricing definido:", modelKey);
+    return 0;
+  }
 
   let total = 0;
-  // Modelo de transcripción (gpt4o-transcribe)
+
   if (modelKey === "GPT4O_TRANSCRIBE") {
     total += (audioTokens / 1_000_000) * pricing.audioInput;
     total += (tokensEntrada / 1_000_000) * pricing.textInput;
@@ -79,6 +85,15 @@ export function calculateCost(
     total += (tokensEntrada / 1_000_000) * pricing.input;
     total += (tokensSalida / 1_000_000) * pricing.output;
   }
+
+  console.log("[CostPanel] calculateCost", {
+    modelKey,
+    tokensEntrada,
+    tokensSalida,
+    audioTokens,
+    total,
+  });
+
   return total;
 }
 
@@ -95,31 +110,24 @@ function renderCostEntries() {
   // Renderiza cada interacción
   costEntries.forEach(
     (
-      {
-        modelo,
-        tokensEntrada,
-        tokensSalida,
-        precioEntrada,
-        precioSalida,
-        costeTotal,
-      },
-      idx,
+      { modelo, tokensEntrada, tokensSalida, precioEntrada, precioSalida, costeTotal },
+      idx
     ) => {
       const card = document.createElement("div");
       card.className = "cost-entry";
 
       card.innerHTML = `
-      <strong>Interacción ${idx + 1}</strong><br />
-      Modelo: ${modelo}<br />
-      Tokens entrada: ${tokensEntrada}<br />
-      Tokens salida: ${tokensSalida}<br />
-      Precio entrada: $${precioEntrada.toFixed(4)} / M tokens<br />
-      Precio salida: $${precioSalida.toFixed(4)} / M tokens<br />
-      Total interacción: $${costeTotal.toFixed(6)}
-    `;
+        <strong>Interacción ${idx + 1}</strong><br />
+        Modelo: ${modelo}<br />
+        Tokens entrada: ${tokensEntrada}<br />
+        Tokens salida: ${tokensSalida}<br />
+        Precio entrada: $${precioEntrada.toFixed(4)} / M tokens<br />
+        Precio salida: $${precioSalida.toFixed(4)} / M tokens<br />
+        Total interacción: $${costeTotal.toFixed(6)}
+      `;
 
       list.appendChild(card);
-    },
+    }
   );
 }
 
@@ -127,3 +135,32 @@ function renderCostEntries() {
 export function getCostEntries() {
   return costEntries;
 }
+
+/**
+ * Auto-inicialización del panel cuando se carga el módulo.
+ * Esto NO toca la lógica del proyecto principal. Si quitas
+ * la etiqueta <script src="./cost-panel.js"> del index.html,
+ * todo esto desaparece.
+ */
+function autoInit() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      console.log("[CostPanel] DOMContentLoaded -> initCostPanel");
+      initCostPanel();
+    });
+  } else {
+    console.log("[CostPanel] DOM ya listo -> initCostPanel");
+    initCostPanel();
+  }
+}
+autoInit();
+
+/**
+ * Exponemos un objeto global para poder probar desde la consola
+ * sin tocar otros archivos del proyecto.
+ */
+window.COST_PANEL = {
+  addCostEntry,
+  calculateCost,
+  PRICING,
+};
