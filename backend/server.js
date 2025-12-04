@@ -9,6 +9,7 @@ import multer from "multer";
 import { createRealtimeEphemeral } from "./services/realtimeSession.js";
 import { runGrammarOracle } from "./services/grammarOracle.js";
 import { transcribeOnce } from "./services/transcriber.js";
+import { Realtime } from "openai/resources/beta/realtime/realtime.js";
 
 dotenv.config();
 
@@ -25,6 +26,8 @@ app.use("/", express.static(path.join(__dirname, "..", "frontend")));
 // ---- CONFIG ----
 const CONFIG = {
   realtimeModel: "gpt-realtime",
+  //"gpt-realtime",
+  //"gpt-4o-mini-realtime-preview",
 
   realtimeVoice: "verse", // o la mejor voz actual disponible
   grammarModel: "gpt-5-mini",
